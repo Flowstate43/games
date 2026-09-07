@@ -96,7 +96,7 @@
       padding: 16px 18px;
       min-height: 56px;
       border-radius: 8px;
-      cursor: pointer;
+      cursor: default;
       margin: 4px;
       touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
@@ -310,7 +310,7 @@
     overlay.innerHTML = `
       <div class="panel">
         <h1>HOOD CHASE</h1>
-        <button id="startBtn" type="button">START HEIST</button>
+        <button id="startBtn" type="button">TAP ANYWHERE TO START</button>
         <div class="tokens">🪶 ₿ Ξ 🐸</div>
         <p>Space Invaders, but the swarm is Robinhood feathers and token logos. Shoot the bag.</p>
         <p style="font-size:12px;color:#7d8a80">Hold LEFT / RIGHT · Hold FIRE · or drag the screen</p>
@@ -533,14 +533,12 @@
   let lastUi = 0;
   function handleUi(e) {
     const t = e.target;
-    if (!t || !t.id) return;
-    if (t.id !== "startBtn" && t.id !== "saveBtn" && t.id !== "boardBtn") return;
-    const now = performance.now();
-    if (now - lastUi < 320) return;
-    lastUi = now;
-    if (t.id === "startBtn") startGame();
-    if (t.id === "boardBtn") renderMenu();
-    if (t.id === "saveBtn") {
+    if (t && (t.id === "muteBtn" || t.id === "tagIn" || (t.closest && t.closest("#pad")))) return;
+    if (state === "play") return;
+    if (t && t.id === "saveBtn") {
+      const now = performance.now();
+      if (now - lastUi < 320) return;
+      lastUi = now;
       const tag = (document.getElementById("tagIn") || {}).value || "HOO";
       const list = addScore(tag, score, wave);
       const last = list.find(r => r.score === score && r.wave === wave);
@@ -548,15 +546,26 @@
         <div class="panel">
           <h1>LOCKED IN</h1>
           ${scoresTable(last)}
-          <button id="startBtn" type="button">RUN IT BACK</button>
+          <button id="startBtn" type="button">TAP ANYWHERE TO RUN IT BACK</button>
         </div>`;
       hud();
+      return;
     }
+    if (t && t.id === "boardBtn") {
+      const now = performance.now();
+      if (now - lastUi < 320) return;
+      lastUi = now;
+      renderMenu();
+      return;
+    }
+    const now = performance.now();
+    if (now - lastUi < 320) return;
+    lastUi = now;
+    startGame();
   }
   overlay.addEventListener("pointerdown", handleUi);
-  overlay.addEventListener("pointerup", handleUi);
-  overlay.addEventListener("click", handleUi);
   overlay.addEventListener("touchstart", handleUi, { passive: true });
+  overlay.addEventListener("click", handleUi);
 
   let lastMute = 0;
   function toggleMute() {
