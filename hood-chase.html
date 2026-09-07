@@ -70,8 +70,9 @@
     #overlay.hidden { display: none; }
     .panel {
       width: min(400px, 92vw);
-      max-height: 92vh;
+      max-height: 85dvh;
       overflow: auto;
+      -webkit-overflow-scrolling: touch;
       background: #0b120e;
       border: 2px solid var(--green);
       border-radius: 16px;
@@ -92,10 +93,15 @@
       background: var(--green);
       color: #041108;
       border: none;
-      padding: 14px 18px;
+      padding: 16px 18px;
+      min-height: 56px;
       border-radius: 8px;
       cursor: pointer;
       margin: 4px;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
     }
     button.ghost {
       background: transparent;
@@ -148,6 +154,23 @@
       z-index: 6;
       font-size: 9px;
       padding: 8px 10px;
+      min-height: 44px;
+    }
+    #pad {
+      width: min(480px, 100%);
+      display: none;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    #pad button {
+      min-height: 76px;
+      font-size: 12px;
+      margin: 0;
+      touch-action: none;
+    }
+    @media (hover: none), (pointer: coarse) {
+      #pad { display: grid; }
     }
   </style>
 </head>
@@ -160,6 +183,11 @@
       <span id="wave">WAVE 1</span>
     </header>
     <canvas id="game" width="480" height="640"></canvas>
+    <div id="pad">
+      <button id="leftBtn" class="ghost" type="button">LEFT</button>
+      <button id="fireBtn" type="button">FIRE</button>
+      <button id="rightBtn" class="ghost" type="button">RIGHT</button>
+    </div>
     <div id="hud">
       <span id="score">SCORE 0</span>
       <span id="hi">HI 0</span>
@@ -193,6 +221,8 @@
   let bombs = [];
   let particles = [];
   let keys = {};
+  let padDir = 0;
+  let fireHeld = false;
   let cooldown = 0, dir = 1, dropTimer = 0, lastTs = 0;
   let muted = localStorage.getItem(MUTE_KEY) === "1";
   let audioCtx = null;
@@ -280,12 +310,12 @@
     overlay.innerHTML = `
       <div class="panel">
         <h1>HOOD CHASE</h1>
+        <button id="startBtn" type="button">START HEIST</button>
         <div class="tokens">🪶 ₿ Ξ 🐸</div>
         <p>Space Invaders, but the swarm is Robinhood feathers and token logos. Shoot the bag.</p>
-        <p style="font-size:12px;color:#7d8a80">A/D or arrows · SPACE / tap to fire</p>
+        <p style="font-size:12px;color:#7d8a80">Hold LEFT / RIGHT · Hold FIRE · or drag the screen</p>
         ${scoresTable()}
         ${extra || ""}
-        <button id="startBtn" type="button">START HEIST</button>
       </div>`;
   }
   function renderOver() {
@@ -295,14 +325,13 @@
       <div class="panel">
         <h1>BAG DROPPED</h1>
         <p>Score ${score} · Wave ${wave}</p>
+        <button id="startBtn" type="button">RUN IT BACK</button>
         ${qualifies ? `
           <p style="font-size:12px;color:#ffd54f">NEW BOARD ENTRY</p>
           <div class="name-row">
             <input id="tagIn" maxlength="3" value="HOO" />
             <button id="saveBtn" type="button">SAVE</button>
           </div>` : scoresTable()}
-        ${qualifies ? "" : ""}
-        <button id="startBtn" type="button">RUN IT BACK</button>
         <button id="boardBtn" class="ghost" type="button">BOARD</button>
       </div>`;
   }
@@ -354,9 +383,10 @@
   function update(dt) {
     if (state !== "play") return;
     cooldown = Math.max(0, cooldown - dt);
-    if (keys["ArrowLeft"] || keys["a"] || keys["A"]) player.x -= player.speed * dt;
-    if (keys["ArrowRight"] || keys["d"] || keys["D"]) player.x += player.speed * dt;
+    if (keys["ArrowLeft"] || keys["a"] || keys["A"] || padDir < 0) player.x -= player.speed * dt;
+    if (keys["ArrowRight"] || keys["d"] || keys["D"] || padDir > 0) player.x += player.speed * dt;
     player.x = Math.max(22, Math.min(W - 22, player.x));
+    if (fireHeld || keys[" "] || keys["Space"]) fire();
 
     bullets.forEach(b => b.y += b.vy * dt);
     bullets = bullets.filter(b => b.y > -20);
@@ -500,11 +530,13 @@
     renderOver();
   }
 
-  overlay.addEventListener("click", (e) => {
-    const id = e.target && e.target.id;
-    if (id === "startBtn") startGame();
-    if (id === "boardBtn") renderMenu();
-    if (id === "saveBtn") {
+  overlay.addEventListener("pointerdown", (e) => {
+    const t = e.target;
+    if (!t || !t.id) return;
+    if (t.id === "startBtn" || t.id === "saveBtn" || t.id === "boardBtn") e.preventDefault();
+    if (t.id === "startBtn") startGame();
+    if (t.id === "boardBtn") renderMenu();
+    if (t.id === "saveBtn") {
       const tag = (document.getElementById("tagIn") || {}).value || "HOO";
       const list = addScore(tag, score, wave);
       const last = list.find(r => r.score === score && r.wave === wave);
@@ -518,12 +550,37 @@
     }
   });
 
-  document.getElementById("muteBtn").onclick = () => {
+  document.getElementById("muteBtn").onpointerdown = (e) => {
+    e.preventDefault();
     muted = !muted;
     localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
     if (!muted) ensureAudio();
     hud();
   };
+
+  function bindHold(el, onDown, onUp) {
+    if (!el) return;
+    let down = false;
+    el.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      el.setPointerCapture(e.pointerId);
+      if (down) return;
+      down = true;
+      onDown();
+    });
+    const up = (e) => {
+      e.preventDefault();
+      if (!down) return;
+      down = false;
+      onUp();
+    };
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+    el.addEventListener("lostpointercapture", up);
+  }
+  bindHold(document.getElementById("leftBtn"), () => { padDir = -1; }, () => { if (padDir < 0) padDir = 0; });
+  bindHold(document.getElementById("rightBtn"), () => { padDir = 1; }, () => { if (padDir > 0) padDir = 0; });
+  bindHold(document.getElementById("fireBtn"), () => { fireHeld = true; fire(); }, () => { fireHeld = false; });
 
   window.addEventListener("keydown", e => {
     keys[e.key] = true;
@@ -536,7 +593,9 @@
 
   let dragging = false;
   canvas.addEventListener("pointerdown", e => {
+    if (state !== "play") return;
     dragging = true;
+    canvas.setPointerCapture(e.pointerId);
     const r = canvas.getBoundingClientRect();
     if (player) player.x = (e.clientX - r.left) * (W / r.width);
     fire();
@@ -547,6 +606,8 @@
     player.x = Math.max(22, Math.min(W - 22, (e.clientX - r.left) * (W / r.width)));
   });
   window.addEventListener("pointerup", () => { dragging = false; });
+  window.addEventListener("pointercancel", () => { dragging = false; padDir = 0; fireHeld = false; });
+  window.addEventListener("blur", () => { keys = {}; padDir = 0; fireHeld = false; });
 
   hud();
   renderMenu();
