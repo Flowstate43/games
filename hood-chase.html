@@ -530,10 +530,14 @@
     renderOver();
   }
 
-  overlay.addEventListener("pointerdown", (e) => {
+  let lastUi = 0;
+  function handleUi(e) {
     const t = e.target;
     if (!t || !t.id) return;
-    if (t.id === "startBtn" || t.id === "saveBtn" || t.id === "boardBtn") e.preventDefault();
+    if (t.id !== "startBtn" && t.id !== "saveBtn" && t.id !== "boardBtn") return;
+    const now = performance.now();
+    if (now - lastUi < 320) return;
+    lastUi = now;
     if (t.id === "startBtn") startGame();
     if (t.id === "boardBtn") renderMenu();
     if (t.id === "saveBtn") {
@@ -548,35 +552,62 @@
         </div>`;
       hud();
     }
-  });
+  }
+  overlay.addEventListener("pointerdown", handleUi);
+  overlay.addEventListener("pointerup", handleUi);
+  overlay.addEventListener("click", handleUi);
+  overlay.addEventListener("touchstart", handleUi, { passive: true });
 
-  document.getElementById("muteBtn").onpointerdown = (e) => {
-    e.preventDefault();
+  let lastMute = 0;
+  function toggleMute() {
+    const now = performance.now();
+    if (now - lastMute < 320) return;
+    lastMute = now;
     muted = !muted;
     localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
     if (!muted) ensureAudio();
     hud();
-  };
+  }
+  const muteBtn = document.getElementById("muteBtn");
+  muteBtn.addEventListener("pointerdown", toggleMute);
+  muteBtn.addEventListener("pointerup", toggleMute);
+  muteBtn.addEventListener("click", toggleMute);
+  muteBtn.addEventListener("touchstart", toggleMute, { passive: true });
 
   function bindHold(el, onDown, onUp) {
     if (!el) return;
     let down = false;
-    el.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      el.setPointerCapture(e.pointerId);
+    let last = 0;
+    const start = (e) => {
       if (down) return;
       down = true;
+      last = performance.now();
+      if (e && e.pointerId != null) {
+        try { el.setPointerCapture(e.pointerId); } catch {}
+      }
       onDown();
-    });
-    const up = (e) => {
-      e.preventDefault();
+    };
+    const up = () => {
       if (!down) return;
       down = false;
+      last = performance.now();
       onUp();
     };
+    const click = () => {
+      if (down) return;
+      if (performance.now() - last < 400) return;
+      onDown();
+      onUp();
+    };
+    el.addEventListener("pointerdown", start);
+    el.addEventListener("touchstart", start, { passive: true });
     el.addEventListener("pointerup", up);
     el.addEventListener("pointercancel", up);
     el.addEventListener("lostpointercapture", up);
+    el.addEventListener("touchend", up);
+    el.addEventListener("touchcancel", up);
+    el.addEventListener("click", click);
+    el.addEventListener("contextmenu", (e) => e.preventDefault());
   }
   bindHold(document.getElementById("leftBtn"), () => { padDir = -1; }, () => { if (padDir < 0) padDir = 0; });
   bindHold(document.getElementById("rightBtn"), () => { padDir = 1; }, () => { if (padDir > 0) padDir = 0; });
